@@ -848,6 +848,11 @@ See [`LICENSE`](LICENSE) for the complete license text.
 
 If this project helps you, consider giving the repository a ⭐
 
+## ☕ Support the Project
+
+<a href="https://www.buymeacoffee.com/k4tral" target="_blank">
+  <img src="https://img.shields.io/badge/☕%20Buy%20Me%20a%20Coffee-support%20the%20project-yellow?style=for-the-badge" alt="Buy Me a Coffee">
+</a>
 </div>
 # advanced-filter-bot
 # advanced-filter-bot
