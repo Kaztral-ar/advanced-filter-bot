@@ -1,0 +1,67 @@
+{
+    "name": "Advanced Filter Bot",
+    "description": "An advanced Telegram filter bot backed by MongoDB",
+    "repository": "",
+    "env": {
+        "TG_BOT_TOKEN": {
+            "description": "Your Telegram Bot Token from @BotFather",
+            "value": ""
+        },
+        "API_HASH": {
+            "description": "Your API Hash from my.telegram.org",
+            "value": ""
+        },
+        "API_ID": {
+            "description": "Your APP ID from my.telegram.org",
+            "value": ""
+        },
+        "AUTH_USERS": {
+            "description": "Space/comma separated Telegram user IDs allowed to manage filters everywhere and run admin commands",
+            "value": ""
+        },
+        "OWNER_ID": {
+            "description": "Your Telegram user ID (gets full auth automatically)",
+            "value": ""
+        },
+        "DATABASE_URI": {
+            "description": "MongoDB connection string from https://cloud.mongodb.com/",
+            "value": ""
+        },
+        "DATABASE_NAME": {
+            "description": "MongoDB database name",
+            "value": "FilterBot",
+            "required": false
+        },
+        "SAVE_USER": {
+            "description": "Store user profiles for /info by id and /broadcast? yes/no",
+            "value": "no",
+            "required": false
+        },
+        "MAX_FILTERS_PER_CHAT": {
+            "description": "0 = unlimited filters per chat",
+            "value": "0",
+            "required": false
+        },
+        "HEROKU_API_KEY": {
+            "description": "Optional: enables dyno-quota reporting in /status",
+            "value": "",
+            "required": false
+        },
+        "ENABLE_WEB_SERVER": {
+            "description": "Bind a health-check HTTP port (needed on Render/Heroku web dynos)",
+            "value": "yes",
+            "required": false
+        }
+    },
+    "buildpacks": [
+        {
+            "url": "heroku/python"
+        }
+    ],
+    "formation": {
+        "worker": {
+            "quantity": 1,
+            "size": "free"
+        }
+    }
+}

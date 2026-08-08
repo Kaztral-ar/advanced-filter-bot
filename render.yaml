@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: filter-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 main.py
+    envVars:
+      - key: TG_BOT_TOKEN
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: DATABASE_URI
+        sync: false
+      - key: DATABASE_NAME
+        value: FilterBot
+      - key: AUTH_USERS
+        sync: false
+      - key: SAVE_USER
+        value: "no"
+      - key: ENABLE_WEB_SERVER
+        value: "yes"
+      # Render sets $PORT automatically; bot.py reads it via Config.PORT.
