@@ -2,8 +2,9 @@ import logging
 import re
 import time
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
+from bot.config import Config
 from bot.database.db import filters_col
 from bot.handlers.utils import alert_token
 
@@ -53,10 +54,18 @@ async def get_filter(chat_id: int, keyword: str) -> Optional[dict]:
 
 
 async def get_filter_by_alert_token(chat_id: int, token: str) -> Optional[dict]:
-    return await filters_col.find_one(
-        {"chat_id": chat_id, "alert_token": token},
-        {"alerts": 1},
+    doc = await filters_col.find_one(
+        {"chat_id": chat_id, "alert_token": token}, {"alerts": 1}
     )
+    if doc:
+        return doc
+
+    # Backward compatibility for filters created before alert_token was stored.
+    cursor = filters_col.find({"chat_id": chat_id}, {"keyword": 1, "alerts": 1})
+    async for old_doc in cursor:
+        if alert_token(old_doc.get("keyword", "")) == token:
+            return old_doc
+    return None
 
 
 async def get_all_keywords(chat_id: int) -> List[str]:
@@ -91,8 +100,7 @@ async def delete_all_filters(chat_id: int) -> int:
 
 
 async def _build_cache(chat_id: int) -> Optional[re.Pattern]:
-    # Projection keeps the temporary Mongo documents tiny while constructing
-    # the matcher; they are released immediately after the regex is built.
+    # Projection keeps temporary Mongo documents tiny while constructing the matcher.
     cursor = filters_col.find({"chat_id": chat_id}, {"keyword": 1})
     keywords = [doc["keyword"] async for doc in cursor if doc.get("keyword")]
     if not keywords:
@@ -123,9 +131,11 @@ async def match_filter(chat_id: int, text: str) -> Optional[dict]:
     if not match:
         return None
 
-    # Fetch only the matched filter. This is the key RAM optimization: the
-    # process never keeps every group's media/reply payload in memory.
-    return await filters_col.find_one({"chat_id": chat_id, "keyword": match.group(1).lower()})
+    # Only the matched response is loaded. Filter media/reply payloads are not
+    # retained in RAM for every group.
+    return await filters_col.find_one(
+        {"chat_id": chat_id, "keyword": match.group(1).lower()}
+    )
 
 
 async def total_stats() -> Tuple[int, int]:
