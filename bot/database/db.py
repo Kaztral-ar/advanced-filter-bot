@@ -6,8 +6,8 @@ from bot.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Keep Mongo's socket pool deliberately small for low-RAM hosts. Motor/PyMongo
-# otherwise permits a much larger pool than a small bot needs.
+# Small, lazy Mongo pool: suitable for a single Telegram bot on low-RAM hosts.
+# minPoolSize=0 means idle connections are not kept just to reserve memory.
 client = AsyncIOMotorClient(
     Config.DATABASE_URI,
     serverSelectionTimeoutMS=10000,
@@ -26,16 +26,15 @@ banned_col = db["BANNED"]
 
 
 async def ensure_indexes() -> None:
+    # One compound index covers normal filter lookup and the keyword list.
+    # The separate chat_id index was redundant because chat_id is the prefix.
     await filters_col.create_index(
         [("chat_id", 1), ("keyword", 1)], unique=True, name="chat_keyword_unique"
     )
-    # Token lookup makes alert-button callbacks O(log n) instead of scanning
-    # every filter in a chat.
     await filters_col.create_index(
         [("chat_id", 1), ("alert_token", 1)], name="chat_alert_token_idx"
     )
-    await connections_col.create_index([("_id", 1)])
-    await banned_col.create_index([("_id", 1)])
+    # _id is automatically indexed by MongoDB; do not create duplicate _id indexes.
 
 
 async def check_connection() -> bool:
