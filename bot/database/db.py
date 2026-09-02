@@ -6,11 +6,17 @@ from bot.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Motor gives us a genuinely async driver so DB calls no longer block the
-# asyncio event loop that Pyrogram's handlers run on (the original code used
-# synchronous pymongo calls inside `async def` handlers, which stalls every
-# other in-flight update while Mongo I/O is pending).
-client = AsyncIOMotorClient(Config.DATABASE_URI, serverSelectionTimeoutMS=15000)
+# Keep Mongo's socket pool deliberately small for low-RAM hosts. Motor/PyMongo
+# otherwise permits a much larger pool than a small bot needs.
+client = AsyncIOMotorClient(
+    Config.DATABASE_URI,
+    serverSelectionTimeoutMS=10000,
+    connectTimeoutMS=10000,
+    socketTimeoutMS=20000,
+    maxPoolSize=Config.MONGO_MAX_POOL_SIZE,
+    minPoolSize=Config.MONGO_MIN_POOL_SIZE,
+    maxConnecting=Config.MONGO_MAX_CONNECTING,
+)
 db = client[Config.DATABASE_NAME]
 
 filters_col = db["FILTERS"]
@@ -20,17 +26,14 @@ banned_col = db["BANNED"]
 
 
 async def ensure_indexes() -> None:
-    """Create indexes required for correctness and performance.
-
-    A single FILTERS collection with a unique (chat_id, keyword) index
-    replaces the original design of one Mongo collection per group, which
-    doesn't enforce uniqueness, doesn't scale past MongoDB's per-database
-    collection limits, and can't be indexed/queried efficiently in aggregate.
-    """
     await filters_col.create_index(
         [("chat_id", 1), ("keyword", 1)], unique=True, name="chat_keyword_unique"
     )
-    await filters_col.create_index([("chat_id", 1)], name="chat_id_idx")
+    # Token lookup makes alert-button callbacks O(log n) instead of scanning
+    # every filter in a chat.
+    await filters_col.create_index(
+        [("chat_id", 1), ("alert_token", 1)], name="chat_alert_token_idx"
+    )
     await connections_col.create_index([("_id", 1)])
     await banned_col.create_index([("_id", 1)])
 
