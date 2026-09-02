@@ -10,9 +10,8 @@ from bot.handlers.utils import alert_token
 
 logger = logging.getLogger(__name__)
 
-# Cache only compiled matchers, never full filter documents. This keeps the
-# hot path fast while preventing filter replies/media from consuming RAM.
-# LRU eviction also prevents memory growing forever as the bot joins groups.
+# Cache only compiled matchers, never full filter documents. LRU eviction
+# prevents memory growing forever as the bot joins more groups.
 _cache: "OrderedDict[int, Optional[re.Pattern]]" = OrderedDict()
 
 
@@ -54,12 +53,9 @@ async def get_filter(chat_id: int, keyword: str) -> Optional[dict]:
 
 
 async def get_filter_by_alert_token(chat_id: int, token: str) -> Optional[dict]:
-    doc = await filters_col.find_one(
-        {"chat_id": chat_id, "alert_token": token}, {"alerts": 1}
-    )
+    doc = await filters_col.find_one({"chat_id": chat_id, "alert_token": token}, {"alerts": 1})
     if doc:
         return doc
-
     # Backward compatibility for filters created before alert_token was stored.
     cursor = filters_col.find({"chat_id": chat_id}, {"keyword": 1, "alerts": 1})
     async for old_doc in cursor:
@@ -81,9 +77,7 @@ async def count_new_filters(chat_id: int, keywords: List[str]) -> int:
     normalized = list(dict.fromkeys(k.strip().lower() for k in keywords if k.strip()))
     if not normalized:
         return 0
-    existing = await filters_col.count_documents(
-        {"chat_id": chat_id, "keyword": {"$in": normalized}}
-    )
+    existing = await filters_col.count_documents({"chat_id": chat_id, "keyword": {"$in": normalized}})
     return len(normalized) - existing
 
 
@@ -100,7 +94,6 @@ async def delete_all_filters(chat_id: int) -> int:
 
 
 async def _build_cache(chat_id: int) -> Optional[re.Pattern]:
-    # Projection keeps temporary Mongo documents tiny while constructing the matcher.
     cursor = filters_col.find({"chat_id": chat_id}, {"keyword": 1})
     keywords = [doc["keyword"] async for doc in cursor if doc.get("keyword")]
     if not keywords:
@@ -116,30 +109,30 @@ async def _build_cache(chat_id: int) -> Optional[re.Pattern]:
 async def match_filter(chat_id: int, text: str) -> Optional[dict]:
     if not text:
         return None
-
     pattern = _cache.get(chat_id)
     if pattern is None and chat_id not in _cache:
         pattern = await _build_cache(chat_id)
         _remember(chat_id, pattern)
     else:
         _cache.move_to_end(chat_id)
-
     if pattern is None:
         return None
-
     match = pattern.search(text)
     if not match:
         return None
-
-    # Only the matched response is loaded. Filter media/reply payloads are not
-    # retained in RAM for every group.
-    return await filters_col.find_one(
-        {"chat_id": chat_id, "keyword": match.group(1).lower()}
-    )
+    # Only the matched response is loaded; media/replies for other filters stay in MongoDB.
+    return await filters_col.find_one({"chat_id": chat_id, "keyword": match.group(1).lower()})
 
 
 async def total_stats() -> Tuple[int, int]:
-    return len(await filters_col.distinct("chat_id")), await filters_col.count_documents({})
+    # Count chats on MongoDB instead of materializing every distinct chat id in Python.
+    result = await filters_col.aggregate([
+        {"$group": {"_id": "$chat_id"}},
+        {"$count": "chats"},
+    ]).to_list(length=1)
+    chats = result[0]["chats"] if result else 0
+    total = await filters_col.count_documents({})
+    return chats, total
 
 
 async def export_filters(chat_id: int) -> List[dict]:
