@@ -1,3 +1,4 @@
+import hashlib
 import re
 from typing import List, Optional, Tuple
 
@@ -13,34 +14,27 @@ BTN_URL_REGEX = re.compile(
 SMART_OPEN = "\u201c"
 SMART_CLOSE = "\u201d"
 START_CHAR = ("'", '"', SMART_OPEN)
-
-# Telegram hard-caps callback_data at 64 bytes.
 CALLBACK_DATA_MAX_BYTES = 64
+ALERT_TOKEN_LENGTH = 16
+
+
+def alert_token(keyword: str) -> str:
+    """Return a stable compact token for a keyword used in alert callbacks."""
+    return hashlib.sha256(keyword.encode("utf-8")).hexdigest()[:ALERT_TOKEN_LENGTH]
 
 
 def is_auth(user_id) -> bool:
-    """True if the given user id is an authorized bot operator (owner or AUTH_USERS)."""
+    """True if the given user id is an authorized bot operator."""
     uid = str(user_id)
     return uid in Config.AUTH_USERS or (Config.OWNER_ID and int(user_id) == Config.OWNER_ID)
 
 
 async def is_chat_admin(client, chat_id, user_id) -> bool:
-    """True if the user is an admin/creator of chat_id, or a global auth user.
-
-    Never raises: on any API error (bot not in chat, user not a member, etc.)
-    this fails closed (returns False) instead of letting an exception escape
-    into the handler and silently do nothing (the original code let
-    get_chat_member() exceptions propagate, which meant a single bad lookup
-    could crash the message handler and drop the update).
-    """
+    """True if the user is an admin/creator of chat_id, or a global auth user."""
     if is_auth(user_id):
         return True
     try:
         member = await client.get_chat_member(chat_id, user_id)
-        # Pyrogram 2.x returns a ChatMemberStatus enum, not a plain string --
-        # comparing it with `member.status == "administrator"` (as the
-        # original code did) is always False on any current Pyrogram
-        # version, which silently broke every admin check in the bot.
         return member.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
     except Exception:
         return False
@@ -57,14 +51,12 @@ def split_quotes(text: str) -> List[str]:
             counter += 1
         else:
             return text.split(None, 1)
-
         key = remove_escapes(text[1:counter].strip())
         rest = text[counter + 1:].strip()
         if not key:
             key = text[0] + text[0]
         return list(filter(None, [key, rest]))
-    else:
-        return text.split(None, 1)
+    return text.split(None, 1)
 
 
 def remove_escapes(text: str) -> str:
@@ -84,15 +76,7 @@ def remove_escapes(text: str) -> str:
 
 
 def parse_buttons(text: str) -> Tuple[str, List[List[dict]], List[str]]:
-    """Parse `[label](buttonurl:...)` / `[label](buttonalert:...)` markup.
-
-    Returns (clean_text, buttons, alerts) where `buttons` is a plain
-    JSON/BSON-serializable structure: a list of rows, each row a list of
-    dicts like {"text": "...", "url": "..."} or {"text": "...", "alert": 0}.
-
-    This intentionally avoids ever producing a Python-source string that
-    later gets eval()'d -- see bot/handlers/filters.py for why that mattered.
-    """
+    """Parse button markup into JSON/BSON-serializable structures."""
     if "buttonalert" in text:
         text = text.replace("\n", "\\n").replace("\t", "\\t")
 
@@ -108,20 +92,17 @@ def parse_buttons(text: str) -> Tuple[str, List[List[dict]], List[str]]:
         while to_check > 0 and text[to_check] == "\\":
             n_escapes += 1
             to_check -= 1
-
         if n_escapes % 2 == 0:
             note_data += text[prev:match.start(1)]
             prev = match.end(1)
             label = match.group(2)
-            same_row = bool(match.group(5)) and buttons
-
+            same_row = bool(match.group(5)) and bool(buttons)
             if match.group(3) == "buttonalert":
                 btn = {"text": label, "alert": alert_index}
                 alerts.append(match.group(4))
                 alert_index += 1
             else:
                 btn = {"text": label, "url": match.group(4).replace(" ", "")}
-
             if same_row:
                 buttons[-1].append(btn)
             else:
@@ -136,30 +117,23 @@ def parse_buttons(text: str) -> Tuple[str, List[List[dict]], List[str]]:
 
 
 def build_markup(buttons: List[List[dict]], chat_id, keyword: str) -> Optional[InlineKeyboardMarkup]:
-    """Reconstruct an InlineKeyboardMarkup from stored button data.
-
-    Alert-button callback_data is `alrt:{index}:{keyword}`. Telegram caps
-    callback_data at 64 bytes, so long keywords are hashed instead of used
-    verbatim -- see filters.py's validation at filter-creation time, which
-    rejects alert buttons on keywords that can't fit.
-    """
+    """Reconstruct an InlineKeyboardMarkup from stored button data."""
     if not buttons:
         return None
 
     rows = []
+    token = alert_token(keyword)
     for row in buttons:
         btn_row = []
         for btn in row:
             if "url" in btn:
                 btn_row.append(InlineKeyboardButton(text=btn["text"], url=btn["url"]))
             elif "alert" in btn:
-                data = f"alrt:{btn['alert']}:{keyword}"
-                if len(data.encode()) > CALLBACK_DATA_MAX_BYTES:
-                    data = f"alrt:{btn['alert']}:{keyword[:20]}"
-                btn_row.append(InlineKeyboardButton(text=btn["text"], callback_data=data))
+                data = f"alrt:{btn['alert']}:{token}"
+                if len(data.encode("utf-8")) <= CALLBACK_DATA_MAX_BYTES:
+                    btn_row.append(InlineKeyboardButton(text=btn["text"], callback_data=data))
         if btn_row:
             rows.append(btn_row)
-
     return InlineKeyboardMarkup(rows) if rows else None
 
 
