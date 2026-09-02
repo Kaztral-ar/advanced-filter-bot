@@ -7,7 +7,6 @@ from bot.database.db import filters_col
 from bot.handlers.utils import alert_token
 
 logger = logging.getLogger(__name__)
-
 _cache: Dict[int, Tuple[Optional["re.Pattern"], Dict[str, dict]]] = {}
 
 
@@ -96,9 +95,7 @@ async def match_filter(chat_id: int, text: str) -> Optional[dict]:
 
 
 async def total_stats() -> Tuple[int, int]:
-    chats = len(await filters_col.distinct("chat_id"))
-    total = await filters_col.count_documents({})
-    return chats, total
+    return len(await filters_col.distinct("chat_id")), await filters_col.count_documents({})
 
 
 async def export_filters(chat_id: int) -> List[dict]:
@@ -107,28 +104,32 @@ async def export_filters(chat_id: int) -> List[dict]:
 
 
 async def import_filters(chat_id: int, docs: List[dict]) -> int:
-    """Import filter records with one bulk database write."""
+    """Import valid filter records with one bulk database write."""
     operations = []
     seen = set()
     for doc in docs:
         if not isinstance(doc, dict):
             continue
         keyword = str(doc.get("keyword", "")).strip().lower()
-        if not keyword or keyword in seen:
+        if not keyword or keyword in seen or len(keyword) > 256:
+            continue
+        buttons = doc.get("buttons", [])
+        alerts = doc.get("alerts", [])
+        if not isinstance(buttons, list) or not isinstance(alerts, list):
             continue
         seen.add(keyword)
         operations.append({"update_one": {
             "filter": {"chat_id": chat_id, "keyword": keyword},
             "update": {"$set": {
                 "chat_id": chat_id, "keyword": keyword,
-                "reply_text": str(doc.get("reply_text", "")),
-                "buttons": doc.get("buttons", []), "file_id": doc.get("file_id"),
-                "file_type": doc.get("file_type"), "alerts": doc.get("alerts", []),
+                "reply_text": str(doc.get("reply_text", ""))[:4096],
+                "buttons": buttons[:100], "file_id": doc.get("file_id"),
+                "file_type": doc.get("file_type"), "alerts": [str(x)[:1024] for x in alerts[:100]],
                 "created_by": doc.get("created_by", 0), "updated_at": time.time(),
             }}, "upsert": True,
         }})
     if not operations:
         return 0
-    result = await filters_col.bulk_write(operations, ordered=False)
+    await filters_col.bulk_write(operations, ordered=False)
     _invalidate(chat_id)
-    return result.upserted_count + result.modified_count + result.matched_count
+    return len(operations)
