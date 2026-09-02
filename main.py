@@ -14,10 +14,7 @@ logger = logging.getLogger("bot")
 
 
 async def _run_web_server():
-    """Bind an HTTP port so hosts that expect a web service (e.g. Render's
-    free tier, which stops non-web-bound processes) see the bot as healthy.
-    No-op if aiohttp isn't installed or ENABLE_WEB_SERVER is off.
-    """
+    """Bind the optional HTTP health endpoint for hosting platforms."""
     if not Config.ENABLE_WEB_SERVER:
         return None
     try:
@@ -58,6 +55,9 @@ async def main():
         api_hash=Config.API_HASH,
         plugins=dict(root="bot/handlers"),
         workers=Config.WORKERS,
+        # Bot sessions do not need a persistent local session file. Keeping the
+        # Telegram session in RAM removes unnecessary disk usage and cleanup.
+        in_memory=True,
     )
 
     web_runner = await _run_web_server()
