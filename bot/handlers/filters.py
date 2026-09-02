@@ -51,26 +51,20 @@ async def addfilter(client: Client, message: Message):
     grp_id, title = await _resolve_target_chat(client, message)
     if grp_id is None or not await is_chat_admin(client, grp_id, message.from_user.id):
         return
-
     now = time.time()
     if now - _last_add_at.get(grp_id, 0) < Config.FILTER_COOLDOWN_SECONDS:
         await message.reply_text("Slow down a little, try again in a second.", quote=True)
         return
     _last_add_at[grp_id] = now
-
     args = message.text.html.split(None, 1)
     if len(args) < 2:
-        await message.reply_text(
-            f"Command incomplete. Usage:\n<code>/{Config.ADD_FILTER_CMD} keyword reply text</code>\n"
-            f"or reply to a message with <code>/{Config.ADD_FILTER_CMD} keyword</code>", quote=True)
+        await message.reply_text(f"Command incomplete. Usage:\n<code>/{Config.ADD_FILTER_CMD} keyword reply text</code>\nor reply to a message with <code>/{Config.ADD_FILTER_CMD} keyword</code>", quote=True)
         return
-
     extracted = split_quotes(args[1])
     raw_keywords = extracted[0].lower()
     if not message.reply_to_message and len(extracted) < 2:
         await message.reply_text("Add some content to save your filter!", quote=True)
         return
-
     reply_text, buttons, alerts, file_id, file_type = "", [], [], None, None
     if message.reply_to_message:
         reply = message.reply_to_message
@@ -89,30 +83,25 @@ async def addfilter(client: Client, message: Message):
         if not reply_text and not buttons:
             await message.reply_text("You cannot have buttons alone, give some text to go with it!", quote=True)
             return
-
     keywords = [k.strip() for k in raw_keywords.split("|") if k.strip()]
     if not keywords:
         await message.reply_text("Give at least one keyword!", quote=True)
         return
-
     if Config.MAX_FILTERS_PER_CHAT:
         existing = await filters_db.count_filters(grp_id)
         new_count = await filters_db.count_new_filters(grp_id, keywords)
         if existing + new_count > Config.MAX_FILTERS_PER_CHAT:
             await message.reply_text(f"This chat has hit its limit of {Config.MAX_FILTERS_PER_CHAT} filters.", quote=True)
             return
-
     for kw in keywords:
         await filters_db.add_filter(grp_id, kw, reply_text, buttons, file_id, file_type, alerts, message.from_user.id)
-    added = ", ".join(f"`{k}`" for k in keywords)
-    await message.reply_text(f"Filter {added} added in **{title}**", quote=True, parse_mode="md")
+    await message.reply_text(f"Filter {', '.join(f'`{k}`' for k in keywords)} added in **{title}**", quote=True, parse_mode="md")
 
 
 @Client.on_message(filters.command("viewfilters"))
 async def get_all(client: Client, message: Message):
     grp_id, title = await _resolve_target_chat(client, message)
-    if grp_id is None or not await is_chat_admin(client, grp_id, message.from_user.id):
-        return
+    if grp_id is None or not await is_chat_admin(client, grp_id, message.from_user.id): return
     keywords = await filters_db.get_all_keywords(grp_id)
     if not keywords:
         await message.reply_text(f"There are no active filters in **{title}**", quote=True, parse_mode="md")
@@ -129,14 +118,11 @@ async def get_all(client: Client, message: Message):
 @Client.on_message(filters.command(Config.DELETE_FILTER_CMD))
 async def deletefilter(client: Client, message: Message):
     grp_id, _ = await _resolve_target_chat(client, message)
-    if grp_id is None or not await is_chat_admin(client, grp_id, message.from_user.id):
-        return
+    if grp_id is None or not await is_chat_admin(client, grp_id, message.from_user.id): return
     try:
         _, text = message.text.split(" ", 1)
     except ValueError:
-        await message.reply_text(
-            "<i>Mention the filter name(s) to delete, space-separated.</i>\n\n"
-            f"<code>/{Config.DELETE_FILTER_CMD} filtername</code>\n\nUse /viewfilters to see all available filters", quote=True)
+        await message.reply_text("<i>Mention the filter name(s) to delete, space-separated.</i>\n\n" f"<code>/{Config.DELETE_FILTER_CMD} filtername</code>\n\nUse /viewfilters to see all available filters", quote=True)
         return
     deleted, missing = [], []
     for kw in [k.strip().lower() for k in text.split() if k.strip()]:
@@ -152,18 +138,13 @@ async def deletefilter(client: Client, message: Message):
 async def delallconfirm(client: Client, message: Message):
     grp_id, title = await _resolve_target_chat(client, message)
     if grp_id is None: return
-    is_creator = False
     try:
         member = await client.get_chat_member(grp_id, message.from_user.id)
         is_creator = member.status == ChatMemberStatus.OWNER
-    except Exception: pass
+    except Exception:
+        is_creator = False
     if is_creator or str(message.from_user.id) in Config.AUTH_USERS:
-        await message.reply_text(
-            f"This will delete all filters from '{title}'.\nDo you want to continue?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(text="YES", callback_data=f"delallconfirm:{grp_id}:{title}")],
-                [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")],
-            ]), quote=True)
+        await message.reply_text(f"This will delete all filters from '{title}'.\nDo you want to continue?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="YES", callback_data=f"delallconfirm:{grp_id}:{title}")], [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")]]), quote=True)
 
 
 @Client.on_message(filters.group & filters.text)
@@ -181,10 +162,9 @@ async def give_filter(client: Client, message: Message):
             logger.warning("Failed to deliver filter '%s' in %s: %s", doc["keyword"], message.chat.id, e)
     if Config.SAVE_USER:
         try:
-            await users_db.add_user(str(message.from_user.id), str(message.from_user.username),
-                                     f"{message.from_user.first_name} {(message.from_user.last_name or '')}".strip(),
-                                     str(message.from_user.dc_id))
-        except Exception: pass
+            await users_db.add_user(str(message.from_user.id), str(message.from_user.username), f"{message.from_user.first_name} {(message.from_user.last_name or '')}".strip(), str(message.from_user.dc_id))
+        except Exception:
+            pass
 
 
 @Client.on_message(filters.command("exportfilters"))
@@ -215,7 +195,16 @@ async def import_cmd(client: Client, message: Message):
             with open(p, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         payload = await asyncio.to_thread(read_json_file, path)
-        if not isinstance(payload, list): raise ValueError("Expected a JSON list of filter objects")
+        if not isinstance(payload, list):
+            raise ValueError("Expected a JSON list of filter objects")
+        if Config.MAX_FILTERS_PER_CHAT:
+            candidates = [str(x.get("keyword", "")).strip().lower() for x in payload if isinstance(x, dict)]
+            candidates = list(dict.fromkeys(k for k in candidates if k))
+            existing = await filters_db.count_filters(grp_id)
+            new_count = await filters_db.count_new_filters(grp_id, candidates)
+            if existing + new_count > Config.MAX_FILTERS_PER_CHAT:
+                await message.reply_text(f"Import would exceed this chat's limit of {Config.MAX_FILTERS_PER_CHAT} filters.", quote=True)
+                return
         count = await filters_db.import_filters(grp_id, payload)
         await message.reply_text(f"Imported {count} filter(s) into **{title}**", quote=True, parse_mode="md")
     except Exception as e:
