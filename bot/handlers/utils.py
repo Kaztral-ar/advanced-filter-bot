@@ -26,7 +26,14 @@ def alert_token(keyword: str) -> str:
 def is_auth(user_id) -> bool:
     """True if the given user id is an authorized bot operator."""
     uid = str(user_id)
-    return uid in Config.AUTH_USERS or (Config.OWNER_ID and int(user_id) == Config.OWNER_ID)
+    if uid in Config.AUTH_USERS:
+        return True
+    if not Config.OWNER_ID:
+        return False
+    try:
+        return int(user_id) == Config.OWNER_ID
+    except (TypeError, ValueError):
+        return False
 
 
 async def is_chat_admin(client, chat_id, user_id) -> bool:
