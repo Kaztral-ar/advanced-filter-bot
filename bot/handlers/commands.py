@@ -6,6 +6,7 @@ import time
 
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType
+from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import Config
@@ -34,7 +35,7 @@ async def showid(client: Client, message):
 
 
 @Client.on_message(filters.command("info") & (filters.private | filters.group))
-async def showinfo(client: Client, message):
+async def showinfo(client, message):
     target_id = None
     parts = message.text.split(" ", 1)
     if len(parts) > 1 and parts[1].strip():
@@ -164,7 +165,7 @@ async def _heroku_quota() -> str:
 
 
 @Client.on_message(filters.command("start") & filters.private)
-async def start(client: Client, message):
+async def start(client, message):
     await message.reply_text(
         text=Messages.START_MSG.format(message.from_user.mention),
         disable_web_page_preview=True,
@@ -184,7 +185,7 @@ async def start(client: Client, message):
 
 
 @Client.on_message(filters.command("help") & filters.private)
-async def help_cmd(client: Client, message):
+async def help_cmd(client, message):
     await message.reply_text(
         text=Messages.HELP_MSG,
         disable_web_page_preview=True,
@@ -200,7 +201,7 @@ async def help_cmd(client: Client, message):
 
 
 @Client.on_message(filters.command("about") & filters.private)
-async def about(client: Client, message):
+async def about(client, message):
     await message.reply_text(
         text=Messages.ABOUT_MSG,
         disable_web_page_preview=True,
@@ -218,7 +219,7 @@ async def about(client: Client, message):
 
 
 @Client.on_message(filters.command("ban") & filters.private)
-async def ban_cmd(client: Client, message):
+async def ban_cmd(client, message):
     if not is_auth(message.from_user.id):
         return
     parts = message.text.split(" ", 2)
@@ -231,7 +232,7 @@ async def ban_cmd(client: Client, message):
 
 
 @Client.on_message(filters.command("unban") & filters.private)
-async def unban_cmd(client: Client, message):
+async def unban_cmd(client, message):
     if not is_auth(message.from_user.id):
         return
     parts = message.text.split(" ", 1)
@@ -246,7 +247,7 @@ async def unban_cmd(client: Client, message):
 
 
 @Client.on_message(filters.command("broadcast") & filters.private)
-async def broadcast_cmd(client: Client, message):
+async def broadcast_cmd(client, message):
     if not is_auth(message.from_user.id):
         return
     if not Config.SAVE_USER:
@@ -264,8 +265,22 @@ async def broadcast_cmd(client: Client, message):
         try:
             await message.reply_to_message.copy(int(uid))
             sent += 1
-        except Exception:
+        except FloodWait as e:
+            # Telegram explicitly asks the client to wait when the broadcast
+            # rate is exceeded. Retry the same recipient after the server's
+            # requested delay instead of counting them as a permanent failure.
+            wait_seconds = max(1, int(e.value))
+            logger.warning("Broadcast rate limited; waiting %s seconds", wait_seconds)
+            await asyncio.sleep(wait_seconds)
+            try:
+                await message.reply_to_message.copy(int(uid))
+                sent += 1
+            except Exception as retry_error:  # noqa: BLE001
+                logger.warning("Broadcast retry failed for %s: %s", uid, retry_error)
+                failed += 1
+        except Exception as e:  # noqa: BLE001
             failed += 1
+            logger.warning("Broadcast failed for %s: %s", uid, e)
         await asyncio.sleep(0.05)  # stay well under Telegram's flood limits
 
     await status.edit_text(f"Broadcast complete.\nSent: {sent}\nFailed: {failed}")
