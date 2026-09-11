@@ -28,7 +28,7 @@ async def addconnection(client: Client, message):
                 quote=True,
             )
             return
-        if not group_id.lstrip("-").isdigit():
+        if not (group_id.lstrip("-").isdigit()):
             await message.reply_text("That doesn't look like a valid group ID.", quote=True)
             return
         group_id = int(group_id)
@@ -39,7 +39,9 @@ async def addconnection(client: Client, message):
 
     try:
         member = await client.get_chat_member(group_id, user_id)
-        if not (member.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER) or is_auth(user_id)):
+        # Connecting a group requires actual admin/owner membership in that
+        # group. Auth users must not be able to bypass this check from PM.
+        if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
             await message.reply_text("You should be an admin in the given group!", quote=True)
             return
     except Exception as e:  # noqa: BLE001
