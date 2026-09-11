@@ -38,14 +38,14 @@ async def showinfo(client: Client, message):
     target_id = None
     parts = message.text.split(" ", 1)
     if len(parts) > 1 and parts[1].strip():
-        # Any integer is a potentially valid Telegram user id -- the original
-        # code rejected ids that weren't exactly 9-10 digits, which breaks on
-        # both small legacy ids and the newer, longer ids Telegram now issues.
-        try:
-            target_id = int(parts[1].strip())
-        except ValueError:
+        # Telegram user IDs are positive integers. Accept IDs of any current
+        # length, but reject signs, zero, and non-numeric input before calling
+        # the API so malformed values cannot reach get_users().
+        raw_id = parts[1].strip()
+        if not raw_id.isdigit() or int(raw_id) <= 0:
             await message.reply_text("__Enter a valid USER ID__", quote=True, parse_mode="md")
             return
+        target_id = int(raw_id)
 
     if target_id is not None:
         name = username = dcid = None
