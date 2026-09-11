@@ -157,6 +157,31 @@ async def import_filters(chat_id: int, docs: List[dict]) -> int:
         alerts = doc.get("alerts", [])
         if not isinstance(buttons, list) or not isinstance(alerts, list):
             continue
+
+        # Validate the nested button structure before storing it. Invalid
+        # rows/buttons can otherwise survive import and fail later in build_markup().
+        valid_buttons = []
+        for row in buttons[:100]:
+            if not isinstance(row, list):
+                continue
+            valid_row = []
+            for btn in row[:20]:
+                if not isinstance(btn, dict):
+                    continue
+                label = btn.get("text")
+                if not isinstance(label, str) or not label.strip() or len(label) > 256:
+                    continue
+                if "url" in btn:
+                    url = btn.get("url")
+                    if isinstance(url, str) and url.strip() and len(url) <= 2048:
+                        valid_row.append({"text": label[:256], "url": url[:2048]})
+                elif "alert" in btn:
+                    alert_index = btn.get("alert")
+                    if isinstance(alert_index, int) and not isinstance(alert_index, bool) and 0 <= alert_index < min(len(alerts), 100):
+                        valid_row.append({"text": label[:256], "alert": alert_index})
+            if valid_row:
+                valid_buttons.append(valid_row)
+
         seen.add(keyword)
         operations.append({"update_one": {
             "filter": {"chat_id": chat_id, "keyword": keyword},
@@ -165,7 +190,7 @@ async def import_filters(chat_id: int, docs: List[dict]) -> int:
                 "keyword": keyword,
                 "alert_token": alert_token(keyword),
                 "reply_text": str(doc.get("reply_text", ""))[:4096],
-                "buttons": buttons[:100],
+                "buttons": valid_buttons,
                 "file_id": doc.get("file_id"),
                 "file_type": doc.get("file_type"),
                 "alerts": [str(x)[:1024] for x in alerts[:100]],
