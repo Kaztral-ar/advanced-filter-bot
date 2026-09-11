@@ -28,7 +28,7 @@ async def addconnection(client: Client, message):
                 quote=True,
             )
             return
-        if not (group_id.lstrip("-").isdigit()):
+        if not group_id.lstrip("-").isdigit():
             await message.reply_text("That doesn't look like a valid group ID.", quote=True)
             return
         group_id = int(group_id)
@@ -114,11 +114,12 @@ async def connections(client: Client, message):
     for group_id in group_ids:
         try:
             chat = await client.get_chat(int(group_id))
-            safe_title = chat.title.replace(":", "")
             active = await if_active(str(user_id), group_id)
-            label = f"{safe_title}{' - ACTIVE' if active else ''}"
+            label = f"{chat.title}{' - ACTIVE' if active else ''}"
+            # Telegram limits callback_data to 64 bytes. Store only the group
+            # id and state; the callback handler fetches the title when needed.
             buttons.append(
-                [InlineKeyboardButton(text=label, callback_data=f"groupcb:{group_id}:{safe_title}:{active}")]
+                [InlineKeyboardButton(text=label, callback_data=f"groupcb:{group_id}:{active}")]
             )
         except Exception:
             continue
