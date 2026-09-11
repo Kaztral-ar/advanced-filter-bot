@@ -214,8 +214,14 @@ async def import_cmd(client: Client, message: Message):
             if existing + new_count > Config.MAX_FILTERS_PER_CHAT:
                 await message.reply_text(f"Import would exceed this chat's limit of {Config.MAX_FILTERS_PER_CHAT} filters.", quote=True)
                 return
-        count = await filters_db.import_filters(grp_id, payload)
-        await message.reply_text(f"Imported {count} filter(s) into **{title}**", quote=True, parse_mode="md")
+        imported, skipped = await filters_db.import_filters(grp_id, payload)
+        if skipped:
+            await message.reply_text(
+                f"Imported {imported} filter(s) into **{title}**. Skipped {skipped} existing filter(s).",
+                quote=True, parse_mode="md"
+            )
+        else:
+            await message.reply_text(f"Imported {imported} filter(s) into **{title}**", quote=True, parse_mode="md")
     except Exception as e:
         logger.warning("Filter import failed in %s: %s", grp_id, e)
         await message.reply_text("Import failed: invalid or unsupported filter JSON.", quote=True)
