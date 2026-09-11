@@ -49,14 +49,31 @@ async def active_connection(user_id: str) -> Optional[int]:
     if not doc:
         return None
     group_id = doc.get("active_group")
-    return int(group_id) if group_id is not None else None
+    if group_id is None:
+        return None
+    try:
+        return int(group_id)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring malformed active_group for user %s: %r", user_id, group_id)
+        return None
 
 
 async def all_connections(user_id: str) -> Optional[List[str]]:
     doc = await connections_col.find_one({"_id": user_id}, {"_id": 0, "active_group": 0})
     if not doc:
         return None
-    return [g["group_id"] for g in doc.get("group_details", [])]
+
+    group_ids = []
+    for group in doc.get("group_details", []):
+        if not isinstance(group, dict):
+            logger.warning("Ignoring malformed connection entry for user %s: %r", user_id, group)
+            continue
+        group_id = group.get("group_id")
+        if not isinstance(group_id, str) or not group_id:
+            logger.warning("Ignoring malformed group_id for user %s: %r", user_id, group_id)
+            continue
+        group_ids.append(group_id)
+    return group_ids
 
 
 async def if_active(user_id: str, group_id: str) -> bool:
@@ -92,10 +109,19 @@ async def delete_connection(user_id: str, group_id: str) -> bool:
         remaining = doc.get("group_details", []) if doc else []
         if remaining:
             if doc.get("active_group") == group_id:
-                fallback = remaining[-1]["group_id"]
-                await connections_col.update_one(
-                    {"_id": user_id}, {"$set": {"active_group": fallback}}
-                )
+                valid_remaining = [
+                    item.get("group_id")
+                    for item in remaining
+                    if isinstance(item, dict) and isinstance(item.get("group_id"), str) and item.get("group_id")
+                ]
+                if valid_remaining:
+                    await connections_col.update_one(
+                        {"_id": user_id}, {"$set": {"active_group": valid_remaining[-1]}}
+                    )
+                else:
+                    await connections_col.update_one(
+                        {"_id": user_id}, {"$set": {"active_group": None}
+                    )
         else:
             await connections_col.update_one({"_id": user_id}, {"$set": {"active_group": None}})
         return True
