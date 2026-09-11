@@ -4,10 +4,10 @@ from pyrogram import Client, filters
 from bot.database import users as users_db
 
 
-@Client.on_message(filters.private & filters.regex(r"^/"), group=-10)
+@Client.on_message(filters.private, group=-10)
 async def ban_gate(client: Client, message):
-    """Runs before every other private-chat command handler (group=-10 sorts
-    first). Banned users get a single notice and nothing else executes.
+    """Block every private-chat interaction from banned users before other
+    handlers get a chance to process it.
     """
     if not message.from_user:
         return
