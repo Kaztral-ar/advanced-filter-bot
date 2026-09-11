@@ -1,39 +1,47 @@
 import logging
 from typing import List, Optional
 
+from pymongo.errors import DuplicateKeyError
+
 from bot.database.db import connections_col
 
 logger = logging.getLogger(__name__)
 
 
 async def add_connection(group_id: str, user_id: str) -> bool:
-    doc = await connections_col.find_one({"_id": user_id})
-    if doc is not None:
-        existing_ids = [g["group_id"] for g in doc.get("group_details", [])]
-        if group_id in existing_ids:
-            return False
-
     group_detail = {"group_id": group_id}
 
-    if doc is None:
-        try:
-            await connections_col.insert_one(
-                {"_id": user_id, "group_details": [group_detail], "active_group": group_id}
-            )
+    # Atomically add a new group only when it is not already present. The
+    # membership predicate prevents concurrent /connect requests from
+    # inserting the same group twice.
+    try:
+        result = await connections_col.update_one(
+            {"_id": user_id, "group_details.group_id": {"$ne": group_id}},
+            {"$push": {"group_details": group_detail}, "$set": {"active_group": group_id}},
+        )
+        if result.matched_count:
             return True
-        except Exception as e:  # noqa: BLE001
-            logger.error("add_connection insert failed: %s", e)
-            return False
-    else:
-        try:
-            await connections_col.update_one(
-                {"_id": user_id},
-                {"$push": {"group_details": group_detail}, "$set": {"active_group": group_id}},
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.error("add_connection update failed: %s", e)
-            return False
+
+        # The user may not have a connection document yet. A concurrent
+        # creator can win the insert, so handle that race and retry atomically.
+        doc = await connections_col.find_one({"_id": user_id}, {"_id": 1})
+        if doc is None:
+            try:
+                await connections_col.insert_one(
+                    {"_id": user_id, "group_details": [group_detail], "active_group": group_id}
+                )
+                return True
+            except DuplicateKeyError:
+                pass
+
+        retry = await connections_col.update_one(
+            {"_id": user_id, "group_details.group_id": {"$ne": group_id}},
+            {"$push": {"group_details": group_detail}, "$set": {"active_group": group_id}},
+        )
+        return retry.matched_count > 0
+    except Exception as e:  # noqa: BLE001
+        logger.error("add_connection failed: %s", e)
+        return False
 
 
 async def active_connection(user_id: str) -> Optional[int]:
@@ -65,7 +73,6 @@ async def make_active(user_id: str, group_id: str) -> bool:
 
 
 async def make_inactive(user_id: str) -> bool:
-    """Deactivate a user's active connection and report only real state changes."""
     result = await connections_col.update_one(
         {"_id": user_id, "active_group": {"$ne": None}},
         {"$set": {"active_group": None}},
