@@ -143,7 +143,7 @@ async def export_filters(chat_id: int) -> List[dict]:
     return [doc async for doc in cursor]
 
 
-async def import_filters(chat_id: int, docs: List[dict]) -> int:
+async def import_filters(chat_id: int, docs: List[dict]) -> Tuple[int, int]:
     operations = []
     seen = set()
     now = time.time()
@@ -185,7 +185,7 @@ async def import_filters(chat_id: int, docs: List[dict]) -> int:
         seen.add(keyword)
         operations.append({"update_one": {
             "filter": {"chat_id": chat_id, "keyword": keyword},
-            "update": {"$set": {
+            "update": {"$setOnInsert": {
                 "chat_id": chat_id,
                 "keyword": keyword,
                 "alert_token": alert_token(keyword),
@@ -199,8 +199,14 @@ async def import_filters(chat_id: int, docs: List[dict]) -> int:
             }},
             "upsert": True,
         }})
+
     if not operations:
-        return 0
-    await filters_col.bulk_write(operations, ordered=False)
+        return 0, 0
+
+    # Existing filters are deliberately preserved. $setOnInsert makes imports
+    # non-destructive while still allowing missing filters to be restored.
+    result = await filters_col.bulk_write(operations, ordered=False)
     _invalidate(chat_id)
-    return len(operations)
+    imported = result.upserted_count
+    skipped = len(operations) - imported
+    return imported, skipped
