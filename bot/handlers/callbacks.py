@@ -5,6 +5,7 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.database import filters as filters_db
+from bot.database import users as users_db
 from bot.database.connections import all_connections, delete_connection, if_active, make_active, make_inactive
 from bot.handlers.utils import is_auth
 from bot.messages import Messages
@@ -32,6 +33,12 @@ async def _group_title(client: Client, group_id: str) -> str:
 
 @Client.on_callback_query()
 async def cb_handler(client: Client, query):
+    # Callback queries are separate from message updates, so the private-chat
+    # ban gate cannot stop a banned user from using an old inline keyboard.
+    if query.from_user and await users_db.is_banned(str(query.from_user.id)):
+        await query.answer("You are banned from using this bot.", show_alert=True)
+        return
+
     data = query.data
 
     if data == "start_data":
