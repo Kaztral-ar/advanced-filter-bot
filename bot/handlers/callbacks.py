@@ -13,6 +13,15 @@ from bot.messages import Messages
 logger = logging.getLogger(__name__)
 
 
+async def _owns_connection(user_id: int, group_id: str) -> bool:
+    """Verify that a callback targets a group actually connected by this user."""
+    try:
+        return str(group_id) in (await all_connections(str(user_id)) or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("connection ownership check failed: %s", e)
+        return False
+
+
 @Client.on_callback_query()
 async def cb_handler(client: Client, query):
     data = query.data
@@ -68,6 +77,9 @@ async def cb_handler(client: Client, query):
     if data.startswith("groupcb:"):
         await query.answer()
         _, group_id, title, act = data.split(":", 3)
+        if not await _owns_connection(query.from_user.id, group_id):
+            await query.answer("This connection is not yours or is no longer available.", show_alert=True)
+            return
         stat, cb = ("DISCONNECT", "disconnect") if act == "True" else ("CONNECT", "connectcb")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(stat, callback_data=f"{cb}:{group_id}:{title}"), InlineKeyboardButton("DELETE", callback_data=f"deletecb:{group_id}")],
@@ -77,22 +89,31 @@ async def cb_handler(client: Client, query):
         return
 
     if data.startswith("connectcb:"):
-        await query.answer()
         _, group_id, title = data.split(":", 2)
+        if not await _owns_connection(query.from_user.id, group_id):
+            await query.answer("This connection is not yours or is no longer available.", show_alert=True)
+            return
+        await query.answer()
         ok = await make_active(str(query.from_user.id), group_id)
         await query.message.edit_text(f"Connected to **{title}**" if ok else "Some error occurred!", parse_mode="md")
         return
 
     if data.startswith("disconnect:"):
-        await query.answer()
         _, group_id, title = data.split(":", 2)
+        if not await _owns_connection(query.from_user.id, group_id):
+            await query.answer("This connection is not yours or is no longer available.", show_alert=True)
+            return
+        await query.answer()
         ok = await make_inactive(str(query.from_user.id))
         await query.message.edit_text(f"Disconnected from **{title}**" if ok else "Some error occurred!", parse_mode="md")
         return
 
     if data.startswith("deletecb:"):
-        await query.answer()
         _, group_id = data.split(":", 1)
+        if not await _owns_connection(query.from_user.id, group_id):
+            await query.answer("This connection is not yours or is no longer available.", show_alert=True)
+            return
+        await query.answer()
         ok = await delete_connection(str(query.from_user.id), group_id)
         await query.message.edit_text("Successfully deleted connection" if ok else "Some error occurred!")
         return
