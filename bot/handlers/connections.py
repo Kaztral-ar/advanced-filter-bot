@@ -1,4 +1,5 @@
 import logging
+import re
 
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, ChatType
@@ -11,66 +12,116 @@ from bot.handlers.utils import is_auth
 logger = logging.getLogger(__name__)
 
 
+_GROUP_REF_RE = re.compile(
+    r"^(?:https?://)?t\.me/(?:c/)?([A-Za-z0-9_+-]+)(?:/\d+)?/?$",
+    re.IGNORECASE,
+)
+
+
+def _parse_group_reference(value: str):
+    """Normalize a Telegram group ID, @username, or t.me reference."""
+    value = value.strip()
+    if not value:
+        return None
+
+    if value.lstrip("-").isdigit():
+        return int(value)
+
+    match = _GROUP_REF_RE.fullmatch(value)
+    if match:
+        value = match.group(1)
+
+    if value.startswith("@"):
+        value = value[1:]
+
+    if re.fullmatch(r"[A-Za-z0-9_]{5,32}", value):
+        return value
+    return None
+
+
 @Client.on_message((filters.private | filters.group) & filters.command(Config.CONNECT_COMMAND))
 async def addconnection(client: Client, message):
     user_id = message.from_user.id
     chat_type = message.chat.type
 
     if chat_type == ChatType.PRIVATE:
-        try:
-            _, group_id = message.text.split(" ", 1)
-            group_id = group_id.strip()
-        except ValueError:
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2:
             await message.reply_text(
-                "<b>Enter in correct format!</b>\n\n"
-                f"<code>/{Config.CONNECT_COMMAND} groupid</code>\n\n"
-                "<i>Get your Group id by adding this bot to your group and using <code>/id</code></i>",
+                "<b>How to connect a group</b>\n\n"
+                f"<code>/{Config.CONNECT_COMMAND} -1001234567890</code>\n"
+                f"<code>/{Config.CONNECT_COMMAND} @groupusername</code>\n"
+                f"<code>/{Config.CONNECT_COMMAND} https://t.me/groupusername</code>\n\n"
+                "For private groups, use the numeric group ID.\n"
+                "You must be an admin, and I must also be an admin in the group.",
                 quote=True,
             )
             return
-        if not (group_id.lstrip("-").isdigit()):
-            await message.reply_text("That doesn't look like a valid group ID.", quote=True)
+
+        group_ref = _parse_group_reference(parts[1])
+        if group_ref is None:
+            await message.reply_text(
+                "Invalid group reference. Use a numeric group ID, @username, or t.me group link.",
+                quote=True,
+            )
             return
-        group_id = int(group_id)
     elif chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
-        group_id = message.chat.id
+        group_ref = message.chat.id
     else:
         return
 
     try:
+        chat = await client.get_chat(group_ref)
+        if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+            await message.reply_text("That chat is not a group or supergroup.", quote=True)
+            return
+        group_id = chat.id
+    except Exception as e:  # noqa: BLE001
+        logger.info("connect: unable to resolve %r: %s", group_ref, e)
+        await message.reply_text(
+            "I couldn't find that group. For a private group, use its numeric ID and make sure I'm already in it.",
+            quote=True,
+        )
+        return
+
+    try:
         member = await client.get_chat_member(group_id, user_id)
-        # Connecting a group requires actual admin/owner membership in that
-        # group. Auth users must not be able to bypass this check from PM.
         if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
-            await message.reply_text("You should be an admin in the given group!", quote=True)
+            await message.reply_text(
+                "You must be an admin or owner of the group to connect it.", quote=True
+            )
             return
     except Exception as e:  # noqa: BLE001
         logger.info("connect: membership check failed for %s: %s", group_id, e)
         await message.reply_text(
-            "Invalid Group ID!\n\nIf correct, make sure I'm present in your group!!", quote=True
+            "I can't verify your admin access. Make sure I'm in the group and try again.", quote=True
         )
         return
 
     try:
         me = await client.get_chat_member(group_id, "me")
-        if me.status != ChatMemberStatus.ADMINISTRATOR:
+        if me.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
             await message.reply_text("Add me as an admin in the group first.", quote=True)
             return
 
-        chat = await client.get_chat(group_id)
         connected = await add_connection(str(group_id), str(user_id))
         if connected:
             await message.reply_text(
-                f"Successfully connected to **{chat.title}**\nNow manage your group from my PM!",
+                f"Successfully connected to **{chat.title or 'this group'}**\n"
+                "Now manage your group from my PM!",
                 quote=True,
                 parse_mode="md",
             )
             if chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
                 try:
-                    await client.send_message(user_id, f"Connected to **{chat.title}**!", parse_mode="md")
+                    await client.send_message(
+                        user_id,
+                        f"Connected to **{chat.title or 'this group'}**!",
+                        parse_mode="md",
+                    )
                 except Exception:  # noqa: BLE001
                     await message.reply_text(
-                        "I couldn't message you in PM -- start a chat with me first (tap my name and hit Start).",
+                        "I couldn't message you in PM. Start a chat with me first, then use /connections.",
                         quote=True,
                     )
         else:
