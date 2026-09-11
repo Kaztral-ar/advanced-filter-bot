@@ -58,7 +58,8 @@ async def if_active(user_id: str, group_id: str) -> bool:
 
 async def make_active(user_id: str, group_id: str) -> bool:
     result = await connections_col.update_one(
-        {"_id": user_id}, {"$set": {"active_group": group_id}}
+        {"_id": user_id, "group_details": {"$elemMatch": {"group_id": group_id}}},
+        {"$set": {"active_group": group_id}},
     )
     return result.modified_count > 0 or result.matched_count > 0
 
