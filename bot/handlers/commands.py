@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @Client.on_message(filters.command("id") & (filters.private | filters.group))
-async def showid(client: Client, message):
+async def showid(client, message):
     if message.chat.type == ChatType.PRIVATE:
         await message.reply_text(f"Your ID : `{message.chat.id}`", parse_mode="md", quote=True)
         return
@@ -34,14 +34,11 @@ async def showid(client: Client, message):
     )
 
 
-@Client.on_message(filters.command("info") & (filters.private | filters.group))
+@Client.on_message((filters.private | filters.group) & filters.command("info"))
 async def showinfo(client, message):
     target_id = None
     parts = message.text.split(" ", 1)
     if len(parts) > 1 and parts[1].strip():
-        # Telegram user IDs are positive integers. Accept IDs of any current
-        # length, but reject signs, zero, and non-numeric input before calling
-        # the API so malformed values cannot reach get_users().
         raw_id = parts[1].strip()
         if not raw_id.isdigit() or int(raw_id) <= 0:
             await message.reply_text("__Enter a valid USER ID__", quote=True, parse_mode="md")
@@ -85,7 +82,7 @@ async def showinfo(client, message):
 
 
 @Client.on_message((filters.private | filters.group) & filters.command("status"))
-async def bot_status(client: Client, message):
+async def bot_status(client, message):
     if not is_auth(message.from_user.id):
         return
 
@@ -123,6 +120,16 @@ async def bot_status(client: Client, message):
         quote=True,
         parse_mode="md",
     )
+
+
+@Client.on_message((filters.private | filters.group) & filters.command("ping"))
+async def ping_cmd(client, message):
+    """Show Telegram round-trip latency and bot uptime."""
+    started = time.monotonic()
+    response = await message.reply_text("🏓 Pinging...", quote=True)
+    latency = (time.monotonic() - started) * 1000
+    uptime = hhmmss(time.time() - Config.BOT_START_TIME)
+    await response.edit_text(f"🏓 **Pong!** `{latency:.0f} ms`\n⏱ **Uptime:** `{uptime}`", parse_mode="md")
 
 
 async def _heroku_quota() -> str:
@@ -190,11 +197,7 @@ async def help_cmd(client, message):
         text=Messages.HELP_MSG,
         disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("About Me", callback_data="about_data"),
-                ],
-            ]
+            [[InlineKeyboardButton("About Me", callback_data="about_data")]]
         ),
         quote=True,
     )
@@ -266,9 +269,6 @@ async def broadcast_cmd(client, message):
             await message.reply_to_message.copy(int(uid))
             sent += 1
         except FloodWait as e:
-            # Telegram explicitly asks the client to wait when the broadcast
-            # rate is exceeded. Retry the same recipient after the server's
-            # requested delay instead of counting them as a permanent failure.
             wait_seconds = max(1, int(e.value))
             logger.warning("Broadcast rate limited; waiting %s seconds", wait_seconds)
             await asyncio.sleep(wait_seconds)
@@ -281,6 +281,6 @@ async def broadcast_cmd(client, message):
         except Exception as e:  # noqa: BLE001
             failed += 1
             logger.warning("Broadcast failed for %s: %s", uid, e)
-        await asyncio.sleep(0.05)  # stay well under Telegram's flood limits
+        await asyncio.sleep(0.05)
 
     await status.edit_text(f"Broadcast complete.\nSent: {sent}\nFailed: {failed}")
