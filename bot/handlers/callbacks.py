@@ -40,6 +40,8 @@ async def cb_handler(client: Client, query):
         return
 
     data = query.data
+    if not data:
+        return
 
     if data == "start_data":
         await query.answer()
@@ -65,6 +67,7 @@ async def cb_handler(client: Client, query):
         return
 
     if data == "close_data":
+        await query.answer()
         await query.message.delete()
         return
 
