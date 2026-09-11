@@ -153,7 +153,9 @@ async def delallconfirm(client: Client, message: Message):
     except Exception:
         is_creator = False
     if is_creator or str(message.from_user.id) in Config.AUTH_USERS:
-        await message.reply_text(f"This will delete all filters from '{title}'.\nDo you want to continue?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="YES", callback_data=f"delallconfirm:{grp_id}:{title}")], [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")]]), quote=True)
+        # Telegram limits callback_data to 64 bytes. Keep only the group ID;
+        # the callback handler fetches the title when it needs to display it.
+        await message.reply_text(f"This will delete all filters from '{title}'.\nDo you want to continue?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="YES", callback_data=f"delallconfirm:{grp_id}")], [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")]]), quote=True)
 
 
 @Client.on_message(filters.group & filters.text)
