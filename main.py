@@ -32,8 +32,15 @@ async def _run_web_server():
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", Config.PORT)
-    await site.start()
+    try:
+        site = web.TCPSite(runner, "0.0.0.0", Config.PORT)
+        await site.start()
+    except Exception:
+        # If binding the port fails, make sure the runner's resources are
+        # released before propagating the startup error.
+        await runner.cleanup()
+        raise
+
     logger.info("Health-check web server listening on port %s", Config.PORT)
     return runner
 
@@ -61,16 +68,15 @@ async def main():
     )
 
     web_runner = await _run_web_server()
-
-    async with app:
-        me = await app.get_me()
-        logger.info("Bot started as @%s (id=%s)", me.username, me.id)
-        try:
+    try:
+        async with app:
+            me = await app.get_me()
+            logger.info("Bot started as @%s (id=%s)", me.username, me.id)
             await idle()
-        finally:
-            if web_runner:
-                await web_runner.cleanup()
-            logger.info("Shutting down.")
+    finally:
+        if web_runner:
+            await web_runner.cleanup()
+        logger.info("Shutting down.")
 
 
 if __name__ == "__main__":
