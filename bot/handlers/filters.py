@@ -158,7 +158,9 @@ async def delallconfirm(client: Client, message: Message):
         await message.reply_text(f"This will delete all filters from '{title}'.\nDo you want to continue?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="YES", callback_data=f"delallconfirm:{grp_id}")], [InlineKeyboardButton(text="CANCEL", callback_data="delallcancel")]]), quote=True)
 
 
-@Client.on_message(filters.group & filters.text)
+# Commands are plain text too, so exclude them before doing the catch-all
+# filter lookup. This avoids an unnecessary matcher/cache lookup per command.
+@Client.on_message(filters.group & filters.text & ~filters.command(""))
 async def give_filter(client: Client, message: Message):
     doc = await filters_db.match_filter(message.chat.id, message.text)
     if doc:
