@@ -4,7 +4,6 @@ from pyrogram import Client
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.config import Config
 from bot.database import filters as filters_db
 from bot.database.connections import all_connections, delete_connection, if_active, make_active, make_inactive
 from bot.handlers.utils import is_auth
@@ -20,6 +19,15 @@ async def _owns_connection(user_id: int, group_id: str) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.warning("connection ownership check failed: %s", e)
         return False
+
+
+async def _group_title(client: Client, group_id: str) -> str:
+    """Fetch a display-safe group title instead of embedding it in callback data."""
+    try:
+        chat = await client.get_chat(int(group_id))
+        return chat.title or "Connected group"
+    except Exception:
+        return "Connected group"
 
 
 @Client.on_callback_query()
@@ -54,17 +62,25 @@ async def cb_handler(client: Client, query):
         return
 
     if data.startswith("delallconfirm:"):
-        _, grp_id, title = data.split(":", 2)
-        grp_id = int(grp_id)
+        _, group_id = data.split(":", 1)
         try:
-            member = await client.get_chat_member(grp_id, query.from_user.id)
+            group_id_int = int(group_id)
+        except ValueError:
+            await query.answer("Invalid group.", show_alert=True)
+            return
+        if not await _owns_connection(query.from_user.id, group_id):
+            await query.answer("This connection is not yours or is no longer available.", show_alert=True)
+            return
+        try:
+            member = await client.get_chat_member(group_id_int, query.from_user.id)
             authorized = member.status == ChatMemberStatus.OWNER
         except Exception:
             authorized = False
         if not (authorized or is_auth(query.from_user.id)):
             await query.answer("You need to be the group owner or an auth user to do that!", show_alert=True)
             return
-        count = await filters_db.delete_all_filters(grp_id)
+        count = await filters_db.delete_all_filters(group_id_int)
+        title = await _group_title(client, group_id)
         await query.answer()
         await query.message.edit_text(f"Removed {count} filter(s) from **{title}**", parse_mode="md")
         return
@@ -75,36 +91,43 @@ async def cb_handler(client: Client, query):
         return
 
     if data.startswith("groupcb:"):
-        await query.answer()
-        _, group_id, title, act = data.split(":", 3)
+        try:
+            _, group_id, act = data.split(":", 2)
+        except ValueError:
+            await query.answer("Invalid connection button.", show_alert=True)
+            return
         if not await _owns_connection(query.from_user.id, group_id):
             await query.answer("This connection is not yours or is no longer available.", show_alert=True)
             return
+        title = await _group_title(client, group_id)
         stat, cb = ("DISCONNECT", "disconnect") if act == "True" else ("CONNECT", "connectcb")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(stat, callback_data=f"{cb}:{group_id}:{title}"), InlineKeyboardButton("DELETE", callback_data=f"deletecb:{group_id}")],
+            [InlineKeyboardButton(stat, callback_data=f"{cb}:{group_id}"), InlineKeyboardButton("DELETE", callback_data=f"deletecb:{group_id}")],
             [InlineKeyboardButton("BACK", callback_data="backcb")],
         ])
+        await query.answer()
         await query.message.edit_text(f"Group Name : **{title}**\nGroup ID : `{group_id}`", reply_markup=keyboard, parse_mode="md")
         return
 
     if data.startswith("connectcb:"):
-        _, group_id, title = data.split(":", 2)
+        _, group_id = data.split(":", 1)
         if not await _owns_connection(query.from_user.id, group_id):
             await query.answer("This connection is not yours or is no longer available.", show_alert=True)
             return
         await query.answer()
         ok = await make_active(str(query.from_user.id), group_id)
+        title = await _group_title(client, group_id)
         await query.message.edit_text(f"Connected to **{title}**" if ok else "Some error occurred!", parse_mode="md")
         return
 
     if data.startswith("disconnect:"):
-        _, group_id, title = data.split(":", 2)
+        _, group_id = data.split(":", 1)
         if not await _owns_connection(query.from_user.id, group_id):
             await query.answer("This connection is not yours or is no longer available.", show_alert=True)
             return
         await query.answer()
         ok = await make_inactive(str(query.from_user.id))
+        title = await _group_title(client, group_id)
         await query.message.edit_text(f"Disconnected from **{title}**" if ok else "Some error occurred!", parse_mode="md")
         return
 
@@ -128,10 +151,9 @@ async def cb_handler(client: Client, query):
         for group_id in group_ids:
             try:
                 chat = await client.get_chat(int(group_id))
-                safe_title = chat.title.replace(":", "")
                 active = await if_active(str(query.from_user.id), group_id)
-                label = f"{safe_title}{' - ACTIVE' if active else ''}"
-                buttons.append([InlineKeyboardButton(text=label, callback_data=f"groupcb:{group_id}:{safe_title}:{active}")])
+                label = f"{chat.title}{' - ACTIVE' if active else ''}"
+                buttons.append([InlineKeyboardButton(text=label, callback_data=f"groupcb:{group_id}:{active}")])
             except Exception:
                 continue
         if buttons:
