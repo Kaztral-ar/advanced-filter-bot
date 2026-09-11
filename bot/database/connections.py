@@ -65,8 +65,12 @@ async def make_active(user_id: str, group_id: str) -> bool:
 
 
 async def make_inactive(user_id: str) -> bool:
-    result = await connections_col.update_one({"_id": user_id}, {"$set": {"active_group": None}})
-    return result.modified_count > 0 or result.matched_count > 0
+    """Deactivate a user's active connection and report only real state changes."""
+    result = await connections_col.update_one(
+        {"_id": user_id, "active_group": {"$ne": None}},
+        {"$set": {"active_group": None}},
+    )
+    return result.modified_count > 0
 
 
 async def delete_connection(user_id: str, group_id: str) -> bool:
