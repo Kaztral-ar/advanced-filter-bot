@@ -56,21 +56,30 @@ async def addfilter(client: Client, message: Message):
         await message.reply_text("Slow down a little, try again in a second.", quote=True)
         return
     _last_add_at[grp_id] = now
-    args = message.text.html.split(None, 1)
-    if len(args) < 2:
+
+    # Parse the command from plain text so Telegram HTML escaping cannot
+    # corrupt keywords (for example: <tag>, &name, or quoted keywords).
+    plain_text = message.text or ""
+    html_text = message.text.html if message.text else ""
+    plain_args = plain_text.split(None, 1)
+    html_args = html_text.split(None, 1)
+    if len(plain_args) < 2:
         await message.reply_text(f"Command incomplete. Usage:\n<code>/{Config.ADD_FILTER_CMD} keyword reply text</code>\nor reply to a message with <code>/{Config.ADD_FILTER_CMD} keyword</code>", quote=True)
         return
-    extracted = split_quotes(args[1])
-    raw_keywords = extracted[0].lower()
-    if not message.reply_to_message and len(extracted) < 2:
+
+    plain_extracted = split_quotes(plain_args[1])
+    html_extracted = split_quotes(html_args[1]) if len(html_args) >= 2 else plain_extracted
+    raw_keywords = plain_extracted[0].lower()
+    if not message.reply_to_message and len(plain_extracted) < 2:
         await message.reply_text("Add some content to save your filter!", quote=True)
         return
+    reply_arg = html_extracted[1] if len(html_extracted) >= 2 else (plain_extracted[1] if len(plain_extracted) >= 2 else "")
     reply_text, buttons, alerts, file_id, file_type = "", [], [], None, None
     if message.reply_to_message:
         reply = message.reply_to_message
         fid, ftype = _extract_media(reply)
         caption_or_text = reply.caption.html if (fid and reply.caption) else (reply.text.html if reply.text else "")
-        source_text = caption_or_text or (extracted[1] if len(extracted) >= 2 else "")
+        source_text = caption_or_text or reply_arg
         if reply.reply_markup and getattr(reply.reply_markup, "inline_keyboard", None):
             buttons = [[{"text": b.text, "url": b.url} for b in row if b.url] for row in reply.reply_markup.inline_keyboard]
             buttons = [row for row in buttons if row]
@@ -79,7 +88,7 @@ async def addfilter(client: Client, message: Message):
             reply_text, buttons, alerts = parse_buttons(source_text)
         file_id, file_type = fid, ftype
     else:
-        reply_text, buttons, alerts = parse_buttons(extracted[1])
+        reply_text, buttons, alerts = parse_buttons(reply_arg)
         if not reply_text and not buttons:
             await message.reply_text("You cannot have buttons alone, give some text to go with it!", quote=True)
             return
