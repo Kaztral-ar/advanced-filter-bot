@@ -116,11 +116,11 @@ async def delete_connection(user_id: str, group_id: str) -> bool:
                 ]
                 if valid_remaining:
                     await connections_col.update_one(
-                        {"_id": user_id}, {"$set": {"active_group": valid_remaining[-1]}}
+                        {"_id": user_id}, {"$set": {"active_group": valid_remaining[-1]}
                     )
                 else:
                     await connections_col.update_one(
-                        {"_id": user_id}, {"$set": {"active_group": None}
+                        {"_id": user_id}, {"$set": {"active_group": None}}
                     )
         else:
             await connections_col.update_one({"_id": user_id}, {"$set": {"active_group": None}})
