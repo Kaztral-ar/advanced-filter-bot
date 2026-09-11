@@ -100,8 +100,11 @@ async def _build_cache(chat_id: int) -> Optional[re.Pattern]:
         return None
     ordered = sorted(set(keywords), key=len, reverse=True)
     alternation = "|".join(re.escape(k) for k in ordered)
+    # Match the whole keyword using explicit Unicode-safe boundaries.
+    # Avoid \w-based boundaries because Python's \w semantics can make
+    # keyword matching behave unexpectedly for Unicode and punctuation.
     return re.compile(
-        r"(?:^|\s|[^\w])(" + alternation + r")(?:$|\s|[^\w])",
+        r"(?<!\w)(" + alternation + r")(?!\w)",
         flags=re.IGNORECASE,
     )
 
