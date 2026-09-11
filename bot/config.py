@@ -24,6 +24,12 @@ def _env_set(key: str) -> set:
     return {x.strip() for x in raw.replace(",", " ").split() if x.strip()}
 
 
+def _default_workers() -> int:
+    """Choose a small-host-friendly worker count unless explicitly configured."""
+    cpu_count = os.cpu_count() or 1
+    return min(4, cpu_count)
+
+
 class Config(object):
     TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
     API_ID = _env_int("API_ID", 0)
@@ -51,8 +57,9 @@ class Config(object):
     CONNECT_COMMAND = os.environ.get("CONNECT_COMMAND", "connect")
     DISCONNECT_COMMAND = os.environ.get("DISCONNECT_COMMAND", "disconnect")
 
-    # Conservative defaults for small hosting plans. All are configurable.
-    WORKERS = max(1, _env_int("WORKERS", 8))
+    # Keep the default modest for small hosting plans. Override with WORKERS
+    # when a larger instance needs more Pyrogram handler concurrency.
+    WORKERS = max(1, _env_int("WORKERS", _default_workers()))
     MONGO_MAX_POOL_SIZE = max(1, _env_int("MONGO_MAX_POOL_SIZE", 10))
     MONGO_MIN_POOL_SIZE = max(0, _env_int("MONGO_MIN_POOL_SIZE", 0))
     MONGO_MAX_CONNECTING = max(1, _env_int("MONGO_MAX_CONNECTING", 2))
