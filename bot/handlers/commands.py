@@ -45,6 +45,18 @@ async def showinfo(client, message):
             return
         target_id = int(raw_id)
 
+    # Raw user-ID lookups can expose information about users from unrelated
+    # chats. Restrict that path to trusted bot operators; regular users can
+    # still inspect themselves or someone they are directly replying to.
+    if target_id is not None and not is_auth(message.from_user.id):
+        await message.reply_text(
+            "__For privacy, USER ID lookup is available only to authorized users. "
+            "Use /info as a reply to inspect a user.__",
+            quote=True,
+            parse_mode="md",
+        )
+        return
+
     if target_id is not None:
         name = username = dcid = None
         if Config.SAVE_USER:
